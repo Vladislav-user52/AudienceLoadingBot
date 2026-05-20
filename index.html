@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Расписание аудиторий МИФИ</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f5f7fb; margin: 0; color: #222; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+        .card { background: white; border-radius: 14px; padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 14px rgba(0,0,0,0.08); }
+        h1, h2, h3 { margin-top: 0; }
+        form { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; }
+        .field { display: flex; flex-direction: column; gap: 6px; }
+        input, button { padding: 10px 12px; border-radius: 10px; border: 1px solid #cfd7e6; font-size: 16px; }
+        button { background: #2f6fed; color: white; border: none; cursor: pointer; }
+        button:hover { background: #245ad4; }
+        .lesson { padding: 10px 12px; border: 1px solid #e6eaf2; border-radius: 10px; margin-bottom: 8px; background: #fafbfe; }
+        .muted { color: #666; }
+        .error { white-space: pre-wrap; color: #9b1c1c; background: #fff1f1; border: 1px solid #f1c7c7; padding: 12px; border-radius: 10px; }
+        img { max-width: 100%; border-radius: 10px; border: 1px solid #e6eaf2; background: white; }
+        .week-day { margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid #eee; }
+        .pill { display: inline-block; background: #eef3ff; color: #2148a8; border-radius: 999px; padding: 4px 10px; font-size: 13px; margin-bottom: 8px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="card">
+        <h1>Расписание аудиторий МИФИ</h1>
+        <form method="get" action="/">
+            <div class="field">
+                <label for="room">Аудитория</label>
+                <input id="room" name="room" type="text" value="{{ room }}" placeholder="Например, К-210" required>
+            </div>
+            <div class="field">
+                <label for="target_date">Дата</label>
+                <input id="target_date" name="target_date" type="date" value="{{ target_date or today }}">
+            </div>
+            <button type="submit">Показать</button>
+        </form>
+    </div>
+
+    {% if error %}
+    <div class="card">
+        <h2>Ошибка</h2>
+        <div class="error">{{ error }}</div>
+    </div>
+    {% endif %}
+
+    {% if room_name %}
+    <div class="card">
+        <div class="pill">Аудитория: {{ room_name }}</div>
+        <h2>Расписание на день</h2>
+        <p><strong>{{ day_label }}</strong></p>
+
+        {% if day_lessons %}
+            {% for lesson in day_lessons %}
+                <div class="lesson">
+                    <strong>{{ lesson.start }} - {{ lesson.end }}</strong>
+                    <div>Тип: {{ lesson.lesson_type or "—" }}</div>
+                    <div>{{ lesson.description or "Без описания" }}</div>
+                </div>
+            {% endfor %}
+        {% else %}
+            <p class="muted">На этот день занятий нет.</p>
+        {% endif %}
+
+        {% if day_chart %}
+        <h3>График дня</h3>
+        <img src="data:image/png;base64,{{ day_chart }}" alt="График дня">
+        {% endif %}
+    </div>
+
+    <div class="card">
+        <h2>Расписание на неделю</h2>
+
+        {% for day_label, lessons in week_data %}
+            <div class="week-day">
+                <h3>{{ day_label }}</h3>
+                {% if lessons %}
+                    {% for lesson in lessons %}
+                        <div class="lesson">
+                            <strong>{{ lesson.start }} - {{ lesson.end }}</strong>
+                            <div>Тип: {{ lesson.lesson_type or "—" }}</div>
+                            <div>{{ lesson.description or "Без описания" }}</div>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <p class="muted">Свободно</p>
+                {% endif %}
+            </div>
+        {% endfor %}
+
+        {% if week_chart %}
+        <h3>График недели</h3>
+        <img src="data:image/png;base64,{{ week_chart }}" alt="График недели">
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+</body>
+</html>
