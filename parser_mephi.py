@@ -151,9 +151,57 @@ def extract_room_name(soup: BeautifulSoup) -> str:
 
     return title
 
+GROUP_RE = re.compile(r"\b[А-ЯA-Z]\d{2}-\d{3}\b")
+
+
+def extract_groups(description: str) -> List[str]:
+    groups = GROUP_RE.findall(description)
+    return sorted(set(groups))
+
+
+def count_groups(description: str) -> int:
+    return len(extract_groups(description))
+
+
+def get_load_color(group_count: int) -> str:
+    if group_count >= 7:
+        return "red"
+    if group_count >= 3:
+        return "orange"
+    if group_count >= 1:
+        return "green"
+    return "blue"
+
+
+def get_load_color(group_count: int) -> str:
+    if group_count >= 7:
+        return "red"
+    if group_count >= 3:
+        return "orange"
+    if group_count >= 1:
+        return "green"
+    return "blue"
 
 def is_day_header_tag(tag: Tag) -> bool:
     return tag.name == "h3" and bool(WEEKDAY_RE.match(clean_text(tag)))
+
+def iter_day_content_nodes(day_header: Tag):
+
+    container = day_header.find_parent("main") or day_header.parent
+    started = False
+
+    for node in container.descendants:
+        if node is day_header:
+            started = True
+            continue
+
+        if not started:
+            continue
+
+        if isinstance(node, Tag) and is_day_header_tag(node):
+            break
+
+        yield node
 
 
 def iter_day_headers(soup: BeautifulSoup):
@@ -177,6 +225,10 @@ def finish_current_lesson(
         return
 
     current.description = " ".join(description_parts).strip()
+
+    if not current.lesson_type:
+        current.lesson_type = "Мероприятие"
+
     lessons.append(current)
 
 
@@ -185,13 +237,8 @@ def parse_lessons_after_day_header(day_header: Tag) -> List[Lesson]:
     current: Optional[Lesson] = None
     description_parts: List[str] = []
 
-    for node in day_header.next_elements:
-        if node is day_header:
-            continue
-
+    for node in iter_day_content_nodes(day_header):
         if isinstance(node, Tag):
-            if is_day_header_tag(node):
-                break
             continue
 
         if not isinstance(node, NavigableString):
@@ -230,6 +277,7 @@ def parse_lessons_after_day_header(day_header: Tag) -> List[Lesson]:
 
     finish_current_lesson(current, description_parts, lessons)
     return lessons
+
 
 
 def parse_schedule_page(
@@ -302,40 +350,135 @@ def fig_to_base64(fig) -> str:
     buffer.seek(0)
     return base64.b64encode(buffer.read()).decode("utf-8")
 
-
 def build_day_chart_base64(room_name: str, day_label: str, lessons: List[dict]) -> str:
-    fig, ax = plt.subplots(figsize=(12, 2.8))
+    fig, ax = plt.subplots(figsize=(15, 6))
 
     if not lessons:
-        ax.text(0.5, 0.5, "Аудитория свободна весь день", ha="center", va="center", fontsize=12)
-        ax.set_title(f"{room_name}: {day_label}")
-        ax.set_xticks([])
-        ax.set_yticks([])
+        ax.set_title(
+            f"Загрузка аудитории {room_name}\n{day_label}",
+            fontsize=18,
+            fontweight="bold",
+        )
+        ax.set_ylabel("Количество групп", fontsize=14)
+        ax.set_xlabel("Время", fontsize=14)
+        ax.set_ylim(0, 1)
+        ax.set_xlim(8 * 60, 20 * 60)
+        ax.set_xticks([8 * 60, 20 * 60])
+        ax.set_xticklabels(["08:00", "22:15"])
+        ax.grid(axis="y", alpha=0.3)
+        ax.grid(axis="x", alpha=0.2)
         return fig_to_base64(fig)
 
+    bars_info = []
+    tick_positions = set()
+
     for lesson in lessons:
-        start = time_to_minutes(lesson["start"])
-        end = time_to_minutes(lesson["end"])
-        duration = end - start
+        start_time = lesson["start"]
+        end_time = lesson["end"]
+        description = lesson.get("description", "")
+        group_count = count_groups(description)
 
-        ax.broken_barh([(start, duration)], (5, 8))
-        label = lesson.get("lesson_type") or "Занято"
-        ax.text(start + duration / 2, 9, label, ha="center", va="center", fontsize=9)
+        lesson_type = lesson.get("lesson_type")
+        if not lesson_type:
+            lesson_type = "Мероприятие"
 
-    min_time = min(time_to_minutes(lesson["start"]) for lesson in lessons) - 15
-    max_time = max(time_to_minutes(lesson["end"]) for lesson in lessons) + 15
+        start_minutes = time_to_minutes(start_time)
+        end_minutes = time_to_minutes(end_time)
+        duration = end_minutes - start_minutes
 
-    step = 30
-    ticks = list(range((min_time // step) * step, ((max_time + step - 1) // step) * step + 1, step))
-    ax.set_xticks(ticks)
-    ax.set_xticklabels([minutes_to_time_label(t) for t in ticks], rotation=45)
-    ax.set_ylim(0, 20)
-    ax.set_yticks([9])
-    ax.set_yticklabels(["Занятость"])
-    ax.set_xlabel("Время")
-    ax.set_title(f"{room_name}: {day_label}")
-    ax.grid(axis="x", linestyle="--", alpha=0.5)
+        bars_info.append(
+            {
+                "start": start_minutes,
+                "end": end_minutes,
+                "duration": duration,
+                "group_count": group_count,
+                "lesson_type": lesson_type,
+                "color": get_load_color(group_count),
+            }
+        )
+
+        tick_positions.add(start_minutes)
+        tick_positions.add(end_minutes)
+
+    for item in bars_info:
+        height = item["group_count"]
+
+        # Если групп нет, всё равно рисуем занятие как мероприятие
+        visible_height = height if height > 0 else 1
+
+        ax.bar(
+            item["start"],
+            visible_height,
+            width=item["duration"],
+            align="edge",
+            color=item["color"],
+            edgecolor="black",
+        )
+
+        center_x = item["start"] + item["duration"] / 2
+        text_color = "white" if item["color"] in ("red", "orange", "blue") else "black"
+
+        # Внутри столбца — тип занятия
+        inside_label = item["lesson_type"]
+        if height == 0:
+            inside_label = "Мероприятие"
+
+        ax.text(
+            center_x,
+            visible_height / 2,
+            inside_label,
+            ha="center",
+            va="center",
+            fontsize=12,
+            fontweight="bold",
+            color=text_color,
+        )
+
+        if height > 0:
+            ax.text(
+                center_x,
+                visible_height + 0.08,
+                str(height),
+                ha="center",
+                va="bottom",
+                fontsize=12,
+                fontweight="bold",
+                color="black",
+            )
+
+    from matplotlib.patches import Patch
+
+    legend_items = [
+        Patch(facecolor="red", edgecolor="black", label="Высокая загрузка (7+ групп)"),
+        Patch(facecolor="orange", edgecolor="black", label="Средняя загрузка (3-6 групп)"),
+        Patch(facecolor="green", edgecolor="black", label="Лёгкая загрузка (1-2 группы)"),
+        Patch(facecolor="blue", edgecolor="black", label="Мероприятие"),
+    ]
+    ax.legend(handles=legend_items, loc="upper right")
+
+    tick_positions = sorted(tick_positions)
+    ax.set_xticks(tick_positions)
+    ax.set_xticklabels([minutes_to_time_label(t) for t in tick_positions], rotation=45)
+
+    min_time = min(item["start"] for item in bars_info) - 10
+    max_time = max(item["end"] for item in bars_info) + 10
+    ax.set_xlim(min_time, max_time)
+
+    max_value = max(item["group_count"] for item in bars_info)
+    ax.set_ylim(0, max(max_value + 1, 3))
+
+    ax.set_title(
+        f"Загрузка аудитории {room_name}\n{day_label}",
+        fontsize=18,
+        fontweight="bold",
+    )
+    ax.set_ylabel("Количество групп", fontsize=14)
+    ax.set_xlabel("Время", fontsize=14)
+    ax.grid(axis="y", alpha=0.3)
+    ax.grid(axis="x", alpha=0.2)
+
     return fig_to_base64(fig)
+
 
 
 def build_week_chart_base64(room_name: str, week_data: List[tuple]) -> str:
