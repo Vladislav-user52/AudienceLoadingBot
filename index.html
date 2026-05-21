@@ -57,6 +57,26 @@
                     <strong>{{ lesson.start }} - {{ lesson.end }}</strong>
                     <div>Тип: {{ lesson.lesson_type or "—" }}</div>
                     <div>{{ lesson.description or "Без описания" }}</div>
+                    
+                    {% if lesson.groups %}
+                        <div>
+                            {% if lesson.groups|length == 1 %}
+                                Группа: {{ lesson.groups|join(", ") }}
+                            {% else %}
+                                Группы: {{ lesson.groups|join(", ") }}
+                            {% endif %}
+                        </div>
+                    {% endif %}
+
+                    {% if lesson.teachers %}
+                        <div>
+                            {% if lesson.teachers|length == 1 %}
+                                Преподаватель: {{ lesson.teachers|join(", ") }}
+                            {% else %}
+                                Преподаватели: {{ lesson.teachers|join(", ") }}
+                            {% endif %}
+                        </div>
+                    {% endif %}
                 </div>
             {% endfor %}
         {% else %}
@@ -81,6 +101,26 @@
                             <strong>{{ lesson.start }} - {{ lesson.end }}</strong>
                             <div>Тип: {{ lesson.lesson_type or "—" }}</div>
                             <div>{{ lesson.description or "Без описания" }}</div>
+                            
+                            {% if lesson.groups %}
+                                <div>
+                                    {% if lesson.groups|length == 1 %}
+                                        Группа: {{ lesson.groups|join(", ") }}
+                                    {% else %}
+                                        Группы: {{ lesson.groups|join(", ") }}
+                                    {% endif %}
+                                </div>
+                            {% endif %}
+
+                            {% if lesson.teachers %}
+                                <div>
+                                    {% if lesson.teachers|length == 1 %}
+                                        Преподаватель: {{ lesson.teachers|join(", ") }}
+                                    {% else %}
+                                        Преподаватели: {{ lesson.teachers|join(", ") }}
+                                    {% endif %}
+                                </div>
+                            {% endif %}
                         </div>
                     {% endfor %}
                 {% else %}

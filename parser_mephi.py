@@ -28,15 +28,24 @@ ROOM_TITLE_RE = re.compile(
 )
 LESSON_TYPES = {"Лек", "Пр", "Лаб", "Конс", "СР", "Экз", "Зач", "КСР", "НИР"}
 
+TEACHER_NAME_PATTERN = r"[А-ЯЁ][а-яё-]+\s+[А-ЯЁ]\.[А-ЯЁ]\."
+TEACHER_BLOCK_RE = re.compile(
+    rf"(?:{TEACHER_NAME_PATTERN})(?:\s*,\s*(?:{TEACHER_NAME_PATTERN}))*$"
+)
 
+DATE_SUFFIX_RE = re.compile(
+    r"\(\d{2}\.\d{2}\.\d{4}(?:\s*[—–-]\s*\d{2}\.\d{2}\.\d{4})?\)$"
+)
+GROUP_RE = re.compile(r"\b[А-ЯA-Z]\d{2}-\d{3}\b")
 @dataclass
+
 class Lesson:
     start: str
     end: str
     lesson_type: Optional[str]
     description: str
-
-
+    groups: List[str]
+    teachers: List[str]
 def get_soup(url: str) -> BeautifulSoup:
     response = requests.get(url, headers=HEADERS, timeout=30)
     response.raise_for_status()
@@ -167,7 +176,7 @@ def get_load_color(group_count: int) -> str:
     if group_count >= 7:
         return "red"
     if group_count >= 3:
-        return "orange"
+        return "yellow"
     if group_count >= 1:
         return "green"
     return "blue"
@@ -177,7 +186,7 @@ def get_load_color(group_count: int) -> str:
     if group_count >= 7:
         return "red"
     if group_count >= 3:
-        return "orange"
+        return "yellow"
     if group_count >= 1:
         return "green"
     return "blue"
@@ -224,12 +233,60 @@ def finish_current_lesson(
     if current is None:
         return
 
-    current.description = " ".join(description_parts).strip()
+    raw_description = " ".join(description_parts).strip()
+    clean_description, groups, teachers = split_description_groups_and_teachers(raw_description)
+
+    current.description = clean_description
+    current.groups = groups
+    current.teachers = teachers
 
     if not current.lesson_type:
         current.lesson_type = "Мероприятие"
 
     lessons.append(current)
+
+
+def split_description_groups_and_teachers(description: str) -> tuple[str, List[str], List[str]]:
+    description = clean_text(description)
+
+    date_suffix = ""
+    base = description
+
+    # Если в конце есть дата или диапазон дат в скобках, временно убираем
+    date_match = DATE_SUFFIX_RE.search(base)
+    if date_match:
+        date_suffix = date_match.group(0)
+        base = base[:date_match.start()].rstrip(" ,")
+
+    teachers: List[str] = []
+
+    # Ищем блок преподавателей в самом конце строки
+    for match in re.finditer(TEACHER_NAME_PATTERN, base):
+        tail = base[match.start():].strip()
+
+        if TEACHER_BLOCK_RE.fullmatch(tail):
+            teachers = re.findall(TEACHER_NAME_PATTERN, tail)
+            base = base[:match.start()].rstrip(" ,")
+            break
+
+    # Ищем группы
+    groups = sorted(set(GROUP_RE.findall(base)))
+
+    # Удаляем группы из описания
+    base = GROUP_RE.sub("", base)
+
+    # Чистим лишние запятые и пробелы
+    base = re.sub(r"\s*,\s*", ", ", base)
+    base = re.sub(r"(,\s*){2,}", ", ", base)
+    base = re.sub(r"\s{2,}", " ", base)
+    base = re.sub(r"\s+,", ",", base)
+    base = base.strip(" ,")
+
+    # Возвращаем дату обратно в описание
+    if date_suffix:
+        base = f"{base} {date_suffix}".strip()
+
+    return base, groups, teachers
 
 
 def parse_lessons_after_day_header(day_header: Tag) -> List[Lesson]:
@@ -263,6 +320,8 @@ def parse_lessons_after_day_header(day_header: Tag) -> List[Lesson]:
                 end=end.strip(),
                 lesson_type=None,
                 description="",
+                groups=[],
+                teachers=[],
             )
             description_parts = []
             continue
@@ -375,8 +434,8 @@ def build_day_chart_base64(room_name: str, day_label: str, lessons: List[dict]) 
     for lesson in lessons:
         start_time = lesson["start"]
         end_time = lesson["end"]
-        description = lesson.get("description", "")
-        group_count = count_groups(description)
+        groups = lesson.get("groups", [])
+        group_count = len(groups)
 
         lesson_type = lesson.get("lesson_type")
         if not lesson_type:
@@ -416,7 +475,7 @@ def build_day_chart_base64(room_name: str, day_label: str, lessons: List[dict]) 
         )
 
         center_x = item["start"] + item["duration"] / 2
-        text_color = "white" if item["color"] in ("red", "orange", "blue") else "black"
+        text_color = "white" if item["color"] in ("red", "yellow", "blue") else "black"
 
         # Внутри столбца — тип занятия
         inside_label = item["lesson_type"]
@@ -450,7 +509,7 @@ def build_day_chart_base64(room_name: str, day_label: str, lessons: List[dict]) 
 
     legend_items = [
         Patch(facecolor="red", edgecolor="black", label="Высокая загрузка (7+ групп)"),
-        Patch(facecolor="orange", edgecolor="black", label="Средняя загрузка (3-6 групп)"),
+        Patch(facecolor="yellow", edgecolor="black", label="Средняя загрузка (3-6 групп)"),
         Patch(facecolor="green", edgecolor="black", label="Лёгкая загрузка (1-2 группы)"),
         Patch(facecolor="blue", edgecolor="black", label="Мероприятие"),
     ]
